@@ -3,6 +3,7 @@ import asyncio
 import aiohttp
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 from limits_manager import limits_manager
+import unknown_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,9 @@ async def setup_bot_commands(session: aiohttp.ClientSession):
         
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setMyCommands"
     commands = [
+        {"command": "unknown", "description": "Моделі не в списку (напр: /unknown або /unknown 14)"},
+        {"command": "addcpu", "description": "Швидко додати CPU (напр: /addcpu i5-1335u 15000)"},
+        {"command": "addgpu", "description": "Швидко додати GPU (напр: /addgpu rtx 4050 25000)"},
         {"command": "setlimit", "description": "Встановити новий або існуючий ліміт (напр: /setlimit m5 50000)"},
         {"command": "dellimit", "description": "Видалити критерій (напр: /dellimit rtx 4060)"},
         {"command": "getlimit", "description": "Дізнатись ліміт (напр: /getlimit rtx 4060)"},
@@ -30,6 +34,34 @@ async def setup_bot_commands(session: aiohttp.ClientSession):
                 logger.error(f"Failed to update commands menu: {await response.text()}")
     except Exception as e:
         logger.error(f"Error setting bot commands: {e}")
+
+async def send_unknown_notification(session: aiohttp.ClientSession, notif: dict):
+    """Sends a notification about an unknown CPU/GPU model found on eBay."""
+    model = notif['model'].upper()
+    model_type = notif['model_type']
+    title = notif['title']
+    price_usd = notif['price_usd']
+    item_url = notif.get('item_url', '')
+
+    if model_type == 'gpu':
+        add_cmd = f"/addgpu {notif['model']} [грн]"
+        icon = "🎮"
+    else:
+        add_cmd = f"/addcpu {notif['model']} [грн]"
+        icon = "💻"
+
+    text = (
+        f"❓ <b>Нова модель не в списку!</b>\n\n"
+        f"{icon} <b>Модель:</b> <code>{model}</code>\n"
+        f"📋 <b>Лот:</b> {title}\n"
+        f"💵 <b>Ціна:</b> ~${price_usd:.0f}\n\n"
+        f"Додати до списку:\n<code>{add_cmd}</code>"
+    )
+    if item_url:
+        text += f"\n\n🔗 <a href='{item_url}'>Переглянути лот</a>"
+
+    await send_telegram_message(session, text)
+
 
 async def send_telegram_message(session: aiohttp.ClientSession, text: str):
     """Надсилає звичайне текстове повідомлення у Telegram"""
@@ -106,20 +138,66 @@ async def process_telegram_command(session: aiohttp.ClientSession, text: str):
     if command == "/start" or command == "/help":
         help_text = (
             "🤖 <b>Команди eBay Монітора:</b>\n\n"
-            "<code>/setlimit [модель] [ціна]</code> - Встановити новий ліміт. Приклад:\n"
+            "🔍 <b>Невідомі моделі:</b>\n"
+            "<code>/unknown</code> - Моделі не в списку (за 7 днів)\n"
+            "<code>/unknown 14</code> - За останні 14 днів\n\n"
+            "➕ <b>Швидке додавання:</b>\n"
+            "<code>/addcpu i5-1335u 15000</code> - Додати CPU\n"
+            "<code>/addgpu rtx 4050 25000</code> - Додати GPU\n\n"
+            "⚙️ <b>Управління лімітами:</b>\n"
+            "<code>/setlimit [модель] [ціна]</code> - Встановити ліміт. Приклад:\n"
             "<code>/setlimit m3 pro 90000</code>\n\n"
             "<code>/dellimit [модель]</code> - Видалити критерій. Приклад:\n"
             "<code>/dellimit rtx 4060</code>\n\n"
             "<code>/getlimit [модель]</code> - Дізнатись поточний ліміт. Приклад:\n"
             "<code>/getlimit rtx 4060</code>\n\n"
             "<code>/getall</code> - Показати список усіх лімітів\n\n"
-            "<code>/setrate [курс]</code> - Змінити курс долара. Приклад:\n"
-            "<code>/setrate 41.5</code>\n\n"
-            "<code>/getrate</code> - Показати поточний курс долара\n\n"
+            "💱 <b>Курс долара:</b>\n"
+            "<code>/setrate 41.5</code> - Змінити курс\n"
+            "<code>/getrate</code> - Показати поточний курс\n\n"
             "<code>/help</code> - Показати це меню"
         )
         await send_telegram_message(session, help_text)
         
+    elif command == "/unknown":
+        days_str = text[len("/unknown"):].strip()
+        try:
+            days = int(days_str) if days_str else 7
+            if days <= 0 or days > 90:
+                raise ValueError
+        except ValueError:
+            days = 7
+        report = unknown_tracker.get_unknown_report(days)
+        await send_telegram_message(session, report)
+
+    elif command == "/addcpu":
+        cmd_body = text[len("/addcpu"):].strip()
+        body_parts = cmd_body.rsplit(maxsplit=1)
+        if len(body_parts) == 2:
+            model, price_str = body_parts
+            try:
+                price = float(price_str)
+                response_text = limits_manager.add_to_category(model, price, 'cpu')
+                await send_telegram_message(session, f"✅ {response_text}")
+            except ValueError:
+                await send_telegram_message(session, "❌ Помилка: Ціна має бути числом. Приклад: /addcpu i5-1335u 15000")
+        else:
+            await send_telegram_message(session, "❌ Неправильний формат. Приклад: /addcpu i5-1335u 15000")
+
+    elif command == "/addgpu":
+        cmd_body = text[len("/addgpu"):].strip()
+        body_parts = cmd_body.rsplit(maxsplit=1)
+        if len(body_parts) == 2:
+            model, price_str = body_parts
+            try:
+                price = float(price_str)
+                response_text = limits_manager.add_to_category(model, price, 'gpu')
+                await send_telegram_message(session, f"✅ {response_text}")
+            except ValueError:
+                await send_telegram_message(session, "❌ Помилка: Ціна має бути числом. Приклад: /addgpu rtx 4050 25000")
+        else:
+            await send_telegram_message(session, "❌ Неправильний формат. Приклад: /addgpu rtx 4050 25000")
+
     elif command == "/getall":
         texts = limits_manager.get_all_limits_text()
         for msg in texts:

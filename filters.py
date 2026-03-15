@@ -1,6 +1,7 @@
 import datetime
 from config import NEGATIVE_KEYWORDS
 from limits_manager import limits_manager
+import unknown_tracker
 
 def check_negative_keywords(title: str) -> bool:
     """Перевіряє назву лота на наявність мінус-слів."""
@@ -87,6 +88,8 @@ def process_item(item: dict) -> dict:
     # 6. Критерії та ліміти (зчитуємо з limits_manager)
     criterion, max_cost = limits_manager.find_criterion_and_max_cost(title)
     if not criterion:
+        item_url = item.get("itemWebUrl", "")
+        unknown_tracker.track_unknown(title, price_usd, item_url)
         return None
         
     if final_uah > max_cost:

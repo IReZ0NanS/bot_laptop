@@ -212,6 +212,14 @@ class LimitsManager:
         self.save_limits(self.limits)
         return f"Курс долара оновлено: 1 USD = {rate} грн"
 
+    def add_to_category(self, key: str, price: float, category: str) -> str:
+        key = key.lower().strip()
+        cat = "gpu" if category == "gpu" else "cpu"
+        self.limits[cat][key] = price
+        self.save_limits(self.limits)
+        label = "GPU" if cat == "gpu" else "CPU"
+        return f"Додано {label}: {key.upper()} = {price:,.0f} грн"
+
     def get_limit(self, key: str):
         key = key.lower().strip()
         if key in self.limits["gpu"]: 

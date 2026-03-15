@@ -6,7 +6,8 @@ import os
 from config import POLLING_INTERVAL
 from ebay_api import EbayAPI
 from filters import process_item
-from tg_bot import send_telegram_notification, poll_telegram_updates, setup_bot_commands
+from tg_bot import send_telegram_notification, send_unknown_notification, poll_telegram_updates, setup_bot_commands
+import unknown_tracker
 
 # Налаштування логування
 logging.basicConfig(
@@ -56,6 +57,7 @@ async def main():
         logger.warning(".env file created. Please fill it with your credentials.")
         
     await init_db()
+    unknown_tracker.init_table()
     ebay = EbayAPI()
     cycle_count = 0
 
@@ -98,6 +100,10 @@ async def main():
                         await send_telegram_notification(session, processed_data)
                         new_laptops_found += 1
                         
+                # Send notifications for newly discovered unknown models
+                for notif in unknown_tracker.pop_pending():
+                    await send_unknown_notification(session, notif)
+
                 logger.info(f"Cycle finished. Processed {len(items)} items. Sent {new_laptops_found} notifications.")
                 
             except Exception as e:
