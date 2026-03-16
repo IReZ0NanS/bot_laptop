@@ -182,6 +182,7 @@ async def process_telegram_command(session: aiohttp.ClientSession, text: str):
             try:
                 price = float(price_str)
                 response_text = limits_manager.add_to_category(model, price, 'cpu')
+                unknown_tracker.delete_model_from_unknown(model)
                 await send_telegram_message(session, f"✅ {response_text}")
             except ValueError:
                 await send_telegram_message(session, "❌ Помилка: Ціна має бути числом. Приклад: /addcpu i5-1335u 15000")
@@ -196,6 +197,7 @@ async def process_telegram_command(session: aiohttp.ClientSession, text: str):
             try:
                 price = float(price_str)
                 response_text = limits_manager.add_to_category(model, price, 'gpu')
+                unknown_tracker.delete_model_from_unknown(model)
                 await send_telegram_message(session, f"✅ {response_text}")
             except ValueError:
                 await send_telegram_message(session, "❌ Помилка: Ціна має бути числом. Приклад: /addgpu rtx 4050 25000")
