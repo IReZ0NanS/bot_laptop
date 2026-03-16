@@ -192,40 +192,61 @@ class LimitsManager:
             logger.error(f"Error saving limits.json: {e}")
             return False
 
-    def update_limit(self, key: str, price: float) -> str:
+    def update_limit(self, key: str, price: float) -> str | None:
+        """Оновлює ціну існуючого критерію. Якщо не знайдено — повертає None."""
         key = key.lower().strip()
-        # Перевіряємо в якій категорії знаходиться ключ
         if key in self.limits["gpu"]:
+            old = self.limits["gpu"][key]
             self.limits["gpu"][key] = price
-            self.save_limits(self.limits)
+            if not self.save_limits(self.limits):
+                self.limits["gpu"][key] = old
+                return None
             self._invalidate_cache()
             return f"Оновлено ліміт GPU: {key.upper()} = {price:,.0f} грн"
         elif key in self.limits["cpu"]:
+            old = self.limits["cpu"][key]
             self.limits["cpu"][key] = price
-            self.save_limits(self.limits)
+            if not self.save_limits(self.limits):
+                self.limits["cpu"][key] = old
+                return None
             self._invalidate_cache()
             return f"Оновлено ліміт CPU: {key.upper()} = {price:,.0f} грн"
         else:
-            # Якщо ключ новий, додаємо його до CPU (як універсальну категорію)
-            self.limits["cpu"][key] = price
-            self.save_limits(self.limits)
-            self._invalidate_cache()
-            return f"Додано новий критерій: {key.upper()} = {price:,.0f} грн"
+            return None  # Не знайдено — /setlimit не додає нові критерії
 
     def delete_limit(self, key: str) -> str:
         key = key.lower().strip()
         if key in self.limits["gpu"]:
-            del self.limits["gpu"][key]
-            self.save_limits(self.limits)
-            self._invalidate_cache()
-            return f"Видалено GPU критерій: {key.upper()}"
+            cat = "gpu"
         elif key in self.limits["cpu"]:
-            del self.limits["cpu"][key]
-            self.save_limits(self.limits)
-            self._invalidate_cache()
-            return f"Видалено CPU критерій: {key.upper()}"
+            cat = "cpu"
         else:
             return f"Критерій {key.upper()} не знайдено"
+
+        old_val = self.limits[cat].pop(key)
+        if not self.save_limits(self.limits):
+            self.limits[cat][key] = old_val  # відкат при помилці запису
+            return f"❌ Помилка збереження файлу. Критерій не видалено."
+        self._invalidate_cache()
+        label = "GPU" if cat == "gpu" else "CPU"
+
+        # Попереджаємо про catch-all критерії, які можуть продовжувати спрацьовувати
+        warnings = []
+        for broader_key in list(self.limits[cat].keys()):
+            if broader_key != key and key.startswith(broader_key) and self._match_keyword(broader_key, key):
+                warnings.append(broader_key.upper())
+        # Також перевіряємо протилежну категорію
+        other_cat = "cpu" if cat == "gpu" else "gpu"
+        for broader_key in list(self.limits[other_cat].keys()):
+            if self._match_keyword(broader_key, key):
+                warnings.append(f"{broader_key.upper()} ({'GPU' if other_cat == 'gpu' else 'CPU'})")
+
+        result = f"Видалено {label} критерій: {key.upper()}"
+        if warnings:
+            result += f"\n\n⚠️ Увага! Ці записи все ще можуть спрацьовувати:\n"
+            result += "\n".join(f"• <code>{w}</code>" for w in warnings)
+            result += f"\nВикористай /dellimit щоб видалити їх теж."
+        return result
 
     def get_rate(self) -> float:
         return float(self.limits.get("settings", {}).get("usd_rate", 45))

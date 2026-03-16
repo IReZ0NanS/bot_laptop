@@ -22,7 +22,7 @@ async def setup_bot_commands(session: aiohttp.ClientSession):
         {"command": "unknown", "description": "Моделі не в списку (напр: /unknown або /unknown 14)"},
         {"command": "addcpu", "description": "Швидко додати CPU (напр: /addcpu i5-1335u 15000)"},
         {"command": "addgpu", "description": "Швидко додати GPU (напр: /addgpu rtx 4050 25000)"},
-        {"command": "setlimit", "description": "Встановити новий або існуючий ліміт (напр: /setlimit m5 50000)"},
+        {"command": "setlimit", "description": "Змінити ціну існуючого критерію (напр: /setlimit m3 pro 90000)"},
         {"command": "dellimit", "description": "Видалити критерій (напр: /dellimit rtx 4060)"},
         {"command": "getlimit", "description": "Дізнатись ліміт (напр: /getlimit rtx 4060)"},
         {"command": "getall", "description": "Показати всі ліміти"},
@@ -173,8 +173,9 @@ async def process_telegram_command(session: aiohttp.ClientSession, text: str):
             "<code>/addcpu i5-1335u 15000</code> - Додати CPU\n"
             "<code>/addgpu rtx 4050 25000</code> - Додати GPU\n\n"
             "⚙️ <b>Управління лімітами:</b>\n"
-            "<code>/setlimit [модель] [ціна]</code> - Встановити ліміт. Приклад:\n"
-            "<code>/setlimit m3 pro 90000</code>\n\n"
+            "<code>/setlimit [модель] [ціна]</code> - Змінити ціну <b>існуючого</b> критерію. Приклад:\n"
+            "<code>/setlimit m3 pro 90000</code>\n"
+            "<i>Для нових моделей використовуй /addcpu або /addgpu</i>\n\n"
             "<code>/dellimit [модель]</code> - Видалити критерій. Приклад:\n"
             "<code>/dellimit rtx 4060</code>\n\n"
             "<code>/getlimit [модель]</code> - Дізнатись поточний ліміт. Приклад:\n"
@@ -282,7 +283,16 @@ async def process_telegram_command(session: aiohttp.ClientSession, text: str):
             try:
                 price = float(price_str)
                 response_text = limits_manager.update_limit(model, price)
-                await send_telegram_message(session, f"✅ {response_text}")
+                if response_text:
+                    await send_telegram_message(session, f"✅ {response_text}")
+                else:
+                    await send_telegram_message(
+                        session,
+                        f"❓ Критерій <b>{model.upper()}</b> не знайдено.\n"
+                        f"Щоб додати новий — використовуй:\n"
+                        f"<code>/addcpu {model} {int(price)}</code>  або\n"
+                        f"<code>/addgpu {model} {int(price)}</code>"
+                    )
             except ValueError:
                 await send_telegram_message(session, "❌ Помилка: Ціна має бути числом!")
         else:
@@ -328,6 +338,19 @@ async def poll_telegram_updates(session: aiohttp.ClientSession):
     offset = 0
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
     logger.info("Started Telegram bot command polling...")
+
+    # Дрейн черги при старті — ігноруємо всі накопичені апдейти (зокрема старі /restart),
+    # щоб не зациклюватись після перезапуску.
+    try:
+        async with session.get(url, params={"offset": offset, "timeout": 0}) as response:
+            if response.status == 200:
+                data = await response.json()
+                for result in data.get("result", []):
+                    offset = result["update_id"] + 1
+                if offset:
+                    logger.info(f"Drained {len(data.get('result', []))} pending updates on startup.")
+    except Exception as e:
+        logger.warning(f"Failed to drain pending updates on startup: {e}")
     
     while True:
         try:
