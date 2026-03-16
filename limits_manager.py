@@ -167,12 +167,14 @@ class LimitsManager:
         self.save_limits(DEFAULT_LIMITS)
         return DEFAULT_LIMITS
 
-    def save_limits(self, data):
+    def save_limits(self, data) -> bool:
         try:
             with open(LIMITS_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
+            return True
         except Exception as e:
             logger.error(f"Error saving limits.json: {e}")
+            return False
 
     def update_limit(self, key: str, price: float) -> str:
         key = key.lower().strip()
@@ -212,11 +214,18 @@ class LimitsManager:
         self.save_limits(self.limits)
         return f"Курс долара оновлено: 1 USD = {rate} грн"
 
-    def add_to_category(self, key: str, price: float, category: str) -> str:
+    def add_to_category(self, key: str, price: float, category: str) -> str | None:
         key = key.lower().strip()
         cat = "gpu" if category == "gpu" else "cpu"
+        prev_value = self.limits.setdefault(cat, {}).get(key)
         self.limits[cat][key] = price
-        self.save_limits(self.limits)
+        if not self.save_limits(self.limits):
+            # Revert in-memory change on save failure
+            if prev_value is None:
+                del self.limits[cat][key]
+            else:
+                self.limits[cat][key] = prev_value
+            return None
         label = "GPU" if cat == "gpu" else "CPU"
         return f"Додано {label}: {key.upper()} = {price:,.0f} грн"
 
