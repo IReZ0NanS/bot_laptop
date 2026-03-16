@@ -1,15 +1,19 @@
+import re
 import datetime
 from config import NEGATIVE_KEYWORDS
 from limits_manager import limits_manager
 import unknown_tracker
 
+_NEGATIVE_PATTERN = (
+    re.compile("|".join(re.escape(kw) for kw in NEGATIVE_KEYWORDS), re.IGNORECASE)
+    if NEGATIVE_KEYWORDS else None
+)
+
 def check_negative_keywords(title: str) -> bool:
     """Перевіряє назву лота на наявність мінус-слів."""
-    title_lower = title.lower()
-    for kw in NEGATIVE_KEYWORDS:
-        if kw in title_lower:
-            return True
-    return False
+    if not _NEGATIVE_PATTERN:
+        return False
+    return bool(_NEGATIVE_PATTERN.search(title))
 
 def calculate_final_uah(price_usd: float, shipping_usd: float) -> float:
     """

@@ -71,10 +71,10 @@ def init_table():
         conn.commit()
 
 
-def _was_notified_today(model: str) -> bool:
+def _was_notified(model: str) -> bool:
     with sqlite3.connect(DB_PATH) as conn:
         row = conn.execute(
-            "SELECT 1 FROM unknown_models WHERE model = ? AND date(first_seen) = date('now')",
+            "SELECT 1 FROM unknown_models WHERE model = ?",
             (model,)
         ).fetchone()
         return row is not None
@@ -108,7 +108,7 @@ def track_unknown(title: str, price_usd: float, item_url: str = ""):
     if not model:
         return
 
-    already_notified = _was_notified_today(model)
+    already_notified = _was_notified(model)
     _save_or_update(model, model_type, title, price_usd, item_url)
 
     if not already_notified:

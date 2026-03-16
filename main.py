@@ -75,18 +75,20 @@ async def main():
                 items = await ebay.search_laptops(session)
                 
                 new_laptops_found = 0
-                
+                loop = asyncio.get_event_loop()
+
                 for item in items:
                     item_id = item.get("itemId")
                     if not item_id:
                         continue
-                        
+
                     # Перевіряємо анти-дублікат
                     if await is_item_seen(item_id):
                         continue
 
-                    # Запускаємо логіку фільтрації та розрахунку
-                    processed_data = process_item(item)
+                    # Запускаємо логіку фільтрації у thread executor,
+                    # щоб не блокувати event loop під час обробки лотів
+                    processed_data = await loop.run_in_executor(None, process_item, item)
 
                     # Позначаємо як переглянутий лише якщо лот має дату створення
                     if item.get("itemCreationDate"):

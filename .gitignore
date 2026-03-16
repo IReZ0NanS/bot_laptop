@@ -2,4 +2,3 @@
 seen_items.db
 __pycache__/
 *.csv
-limits.json

@@ -149,6 +149,22 @@ DEFAULT_LIMITS = {
 class LimitsManager:
     def __init__(self):
         self.limits = self.load_limits()
+        self._sorted_gpu = None
+        self._sorted_cpu = None
+
+    def _invalidate_cache(self):
+        self._sorted_gpu = None
+        self._sorted_cpu = None
+
+    def _get_sorted_gpu(self):
+        if self._sorted_gpu is None:
+            self._sorted_gpu = sorted(self.limits["gpu"].items(), key=lambda x: len(x[0]), reverse=True)
+        return self._sorted_gpu
+
+    def _get_sorted_cpu(self):
+        if self._sorted_cpu is None:
+            self._sorted_cpu = sorted(self.limits["cpu"].items(), key=lambda x: len(x[0]), reverse=True)
+        return self._sorted_cpu
 
     def load_limits(self):
         if os.path.exists(LIMITS_FILE):
@@ -182,15 +198,18 @@ class LimitsManager:
         if key in self.limits["gpu"]:
             self.limits["gpu"][key] = price
             self.save_limits(self.limits)
+            self._invalidate_cache()
             return f"Оновлено ліміт GPU: {key.upper()} = {price:,.0f} грн"
         elif key in self.limits["cpu"]:
             self.limits["cpu"][key] = price
             self.save_limits(self.limits)
+            self._invalidate_cache()
             return f"Оновлено ліміт CPU: {key.upper()} = {price:,.0f} грн"
         else:
             # Якщо ключ новий, додаємо його до CPU (як універсальну категорію)
             self.limits["cpu"][key] = price
             self.save_limits(self.limits)
+            self._invalidate_cache()
             return f"Додано новий критерій: {key.upper()} = {price:,.0f} грн"
 
     def delete_limit(self, key: str) -> str:
@@ -198,10 +217,12 @@ class LimitsManager:
         if key in self.limits["gpu"]:
             del self.limits["gpu"][key]
             self.save_limits(self.limits)
+            self._invalidate_cache()
             return f"Видалено GPU критерій: {key.upper()}"
         elif key in self.limits["cpu"]:
             del self.limits["cpu"][key]
             self.save_limits(self.limits)
+            self._invalidate_cache()
             return f"Видалено CPU критерій: {key.upper()}"
         else:
             return f"Критерій {key.upper()} не знайдено"
@@ -226,6 +247,7 @@ class LimitsManager:
             else:
                 self.limits[cat][key] = prev_value
             return None
+        self._invalidate_cache()
         label = "GPU" if cat == "gpu" else "CPU"
         return f"Додано {label}: {key.upper()} = {price:,.0f} грн"
 
@@ -263,16 +285,16 @@ class LimitsManager:
         return False
 
     def find_criterion_and_max_cost(self, title: str):
-        # 1. Шукаємо GPU. Сортуємо ключі за довжиною
-        for gpu, max_cost in sorted(self.limits["gpu"].items(), key=lambda x: len(x[0]), reverse=True):
+        # 1. Шукаємо GPU (відсортовано за довжиною ключа, кешується)
+        for gpu, max_cost in self._get_sorted_gpu():
             if self._match_keyword(gpu, title):
                 return gpu.upper(), max_cost
 
         # 2. Якщо GPU немає, шукаємо CPU
-        for cpu, max_cost in sorted(self.limits["cpu"].items(), key=lambda x: len(x[0]), reverse=True):
+        for cpu, max_cost in self._get_sorted_cpu():
             if self._match_keyword(cpu, title):
                 return cpu.upper(), max_cost
-                
+
         return None, None
 
 limits_manager = LimitsManager()
