@@ -129,6 +129,16 @@ def pop_pending():
     return items
 
 
+def delete_model_from_unknown(model: str):
+    """Remove a model and its hyphen/space variants from unknown_models."""
+    key = model.lower().strip()
+    variants = list({key, key.replace("-", " "), key.replace(" ", "-"), key.replace("-", "")})
+    with sqlite3.connect(DB_PATH) as conn:
+        for variant in variants:
+            conn.execute("DELETE FROM unknown_models WHERE model = ?", (variant,))
+        conn.commit()
+
+
 def get_unknown_report(days: int = 7) -> str:
     """Returns a formatted Telegram-ready report of unknown models seen in the last N days."""
     with sqlite3.connect(DB_PATH) as conn:
