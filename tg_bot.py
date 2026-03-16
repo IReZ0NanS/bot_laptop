@@ -133,7 +133,11 @@ async def send_telegram_notification(session: aiohttp.ClientSession, item_data: 
 async def process_telegram_command(session: aiohttp.ClientSession, text: str):
     """Обробляє команди, отримані від користувача"""
     parts = text.split(maxsplit=2)
-    command = parts[0].lower()
+    raw_command = parts[0]
+    command = raw_command.lower().split('@')[0]
+    # Normalize text to strip @botname suffix from command (e.g. /addcpu@mybot → /addcpu)
+    if '@' in raw_command:
+        text = command + text[len(raw_command):]
     
     if command == "/start" or command == "/help":
         help_text = (
