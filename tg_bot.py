@@ -1,9 +1,13 @@
 import logging
 import asyncio
+import datetime
+import os
+import sys
 import aiohttp
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, VERSION
 from limits_manager import limits_manager
 import unknown_tracker
+import bot_state
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +18,7 @@ async def setup_bot_commands(session: aiohttp.ClientSession):
         
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setMyCommands"
     commands = [
+        {"command": "status", "description": "Статус бота: версія, uptime, статистика"},
         {"command": "unknown", "description": "Моделі не в списку (напр: /unknown або /unknown 14)"},
         {"command": "addcpu", "description": "Швидко додати CPU (напр: /addcpu i5-1335u 15000)"},
         {"command": "addgpu", "description": "Швидко додати GPU (напр: /addgpu rtx 4050 25000)"},
@@ -23,6 +28,7 @@ async def setup_bot_commands(session: aiohttp.ClientSession):
         {"command": "getall", "description": "Показати всі ліміти"},
         {"command": "setrate", "description": "Встановити курс долара (напр: /setrate 41.5)"},
         {"command": "getrate", "description": "Показати поточний курс долара"},
+        {"command": "restart", "description": "Перезапустити бота"},
         {"command": "help", "description": "Показати всі команди"}
     ]
     data = {"commands": commands}
@@ -130,6 +136,22 @@ async def send_telegram_notification(session: aiohttp.ClientSession, item_data: 
     except Exception as e:
         logger.error(f"Exception during Telegram sending: {e}")
 
+def _format_uptime(delta: datetime.timedelta) -> str:
+    total = int(delta.total_seconds())
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, seconds = divmod(rem, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}д")
+    if hours:
+        parts.append(f"{hours}г")
+    if minutes:
+        parts.append(f"{minutes}хв")
+    parts.append(f"{seconds}с")
+    return " ".join(parts)
+
+
 async def process_telegram_command(session: aiohttp.ClientSession, text: str):
     """Обробляє команди, отримані від користувача"""
     parts = text.split(maxsplit=2)
@@ -142,6 +164,8 @@ async def process_telegram_command(session: aiohttp.ClientSession, text: str):
     if command == "/start" or command == "/help":
         help_text = (
             "🤖 <b>Команди eBay Монітора:</b>\n\n"
+            "📊 <b>Інформація:</b>\n"
+            "<code>/status</code> - Версія, uptime, статистика\n\n"
             "🔍 <b>Невідомі моделі:</b>\n"
             "<code>/unknown</code> - Моделі не в списку (за 7 днів)\n"
             "<code>/unknown 14</code> - За останні 14 днів\n\n"
@@ -159,9 +183,44 @@ async def process_telegram_command(session: aiohttp.ClientSession, text: str):
             "💱 <b>Курс долара:</b>\n"
             "<code>/setrate 41.5</code> - Змінити курс\n"
             "<code>/getrate</code> - Показати поточний курс\n\n"
+            "🔧 <b>Управління:</b>\n"
+            "<code>/restart</code> - Перезапустити бота\n\n"
             "<code>/help</code> - Показати це меню"
         )
         await send_telegram_message(session, help_text)
+
+    elif command == "/status":
+        now = datetime.datetime.now(datetime.timezone.utc)
+        uptime = _format_uptime(now - bot_state.START_TIME)
+
+        last_cycle = bot_state.state["last_cycle_time"]
+        if last_cycle:
+            ago = _format_uptime(now - last_cycle)
+            last_cycle_str = f"{last_cycle.strftime('%H:%M:%S')} UTC ({ago} тому)"
+        else:
+            last_cycle_str = "ще не було"
+
+        rate = limits_manager.get_rate()
+        gpu_count = len(limits_manager.limits.get("gpu", {}))
+        cpu_count = len(limits_manager.limits.get("cpu", {}))
+
+        status_text = (
+            f"ℹ️ <b>Статус бота v{VERSION}</b>\n\n"
+            f"⏱ <b>Uptime:</b> {uptime}\n"
+            f"🔄 <b>Останній цикл:</b> {last_cycle_str}\n"
+            f"📦 <b>Лотів у циклі:</b> {bot_state.state['last_items_count']}\n"
+            f"📨 <b>Надіслано сповіщень:</b> {bot_state.state['total_sent']}\n\n"
+            f"💱 <b>Курс USD:</b> {rate} грн\n"
+            f"🎮 <b>GPU критеріїв:</b> {gpu_count}\n"
+            f"💻 <b>CPU критеріїв:</b> {cpu_count}\n\n"
+            f"🐍 <b>Python:</b> {sys.version.split()[0]}"
+        )
+        await send_telegram_message(session, status_text)
+
+    elif command == "/restart":
+        await send_telegram_message(session, "🔄 Перезапуск бота...")
+        logger.info("Restart requested via Telegram command.")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
         
     elif command == "/unknown":
         days_str = text[len("/unknown"):].strip()

@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import aiohttp
 import aiosqlite
 import logging
@@ -8,6 +9,7 @@ from ebay_api import EbayAPI
 from filters import process_item
 from tg_bot import send_telegram_notification, send_unknown_notification, poll_telegram_updates, setup_bot_commands
 import unknown_tracker
+import bot_state
 
 # Налаштування логування
 logging.basicConfig(
@@ -101,10 +103,15 @@ async def main():
                         # Надсилаємо у Telegram
                         await send_telegram_notification(session, processed_data)
                         new_laptops_found += 1
-                        
+                        bot_state.state["total_sent"] += 1
+
                 # Send notifications for newly discovered unknown models
                 for notif in unknown_tracker.pop_pending():
                     await send_unknown_notification(session, notif)
+
+                # Оновлюємо стан для /status
+                bot_state.state["last_cycle_time"] = datetime.datetime.now(datetime.timezone.utc)
+                bot_state.state["last_items_count"] = len(items)
 
                 logger.info(f"Cycle finished. Processed {len(items)} items. Sent {new_laptops_found} notifications.")
                 

@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 # Завантажуємо змінні оточення
 load_dotenv()
 
+VERSION = "1.2.0"
+
 EBAY_APP_ID = os.getenv("EBAY_APP_ID", "YOUR_APP_ID_HERE")
 EBAY_CERT_ID = os.getenv("EBAY_CERT_ID", "YOUR_CERT_ID_HERE")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
